@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import event
+from sqlalchemy import event, select, func, insert
 from app.core.config import settings
 
 
@@ -52,5 +52,11 @@ async def get_db() -> AsyncSession:
 
 async def init_db() -> None:
     """Create all tables on startup."""
+    from app.models.incident import Incident, IncidentNumber
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        max_incident = (await conn.execute(select(func.max(Incident.incident_number)))).scalar() or 0
+        max_reserved = (await conn.execute(select(func.max(IncidentNumber.id)))).scalar() or 0
+        if max_incident > max_reserved:
+            await conn.execute(insert(IncidentNumber).values(id=max_incident))

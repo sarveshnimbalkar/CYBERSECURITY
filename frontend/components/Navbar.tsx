@@ -1,20 +1,18 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, Activity, RefreshCw, Server, AlertTriangle } from 'lucide-react';
+import { ShieldAlert, Activity, RefreshCw, Server } from 'lucide-react';
 import { fetchHealth, HealthResponse } from '@/lib/api';
 
 export const Navbar = () => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [lastCheck, setLastCheck] = useState<string>('');
 
   const checkHealth = async () => {
     setLoading(true);
     try {
       const data = await fetchHealth();
       setHealth(data);
-      setLastCheck(new Date().toLocaleTimeString());
     } catch {
       setHealth(null);
     } finally {
@@ -23,9 +21,9 @@ export const Navbar = () => {
   };
 
   useEffect(() => {
-    checkHealth();
+    const initial = setTimeout(checkHealth, 0);
     const interval = setInterval(checkHealth, 15000);
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initial); clearInterval(interval); };
   }, []);
 
   return (
@@ -39,7 +37,7 @@ export const Navbar = () => {
             <h1 className="font-bold tracking-wider text-slate-100 text-lg">CLOUDGUARD</h1>
             <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">v1.0-SOC</span>
           </div>
-          <p className="text-xs text-slate-400">AI-Assisted Runtime Threat Detection & Response</p>
+          <p className="text-xs text-slate-400">Runtime Alert Triage & Anomaly Scoring</p>
         </div>
       </div>
 
@@ -73,7 +71,7 @@ export const Navbar = () => {
         {/* Live Lab Indicator */}
         <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-950/40 border border-indigo-800/40 text-indigo-300 text-xs font-mono">
           <Activity className="w-3.5 h-3.5 text-indigo-400" />
-          <span>LAB MODE: SIMULATED TELEMETRY</span>
+          <span>{health?.demo_mode ? 'LAB MODE: SIMULATED TELEMETRY' : 'LIVE ALERT INGESTION'}</span>
         </div>
       </div>
     </header>

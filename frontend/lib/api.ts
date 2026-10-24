@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_BASE_URL = '/api/proxy';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -16,6 +16,7 @@ export interface HealthResponse {
   database: string;
   timestamp: string;
   uptime_seconds: number;
+  demo_mode: boolean;
 }
 
 export interface Container {
@@ -59,7 +60,7 @@ export interface Incident {
   };
   attack_indicators?: string[];
   recommended_actions?: string[];
-  evidence?: Record<string, any>;
+  evidence?: Record<string, unknown>;
   first_seen: string;
   last_seen: string;
   created_at: string;
@@ -74,7 +75,7 @@ export interface AnalyticsSummary {
   high_risk_containers: number;
   threats_today: number;
   total_events: number;
-  detection_rate: number;
+  alerted_event_ratio: number;
   avg_risk_score: number;
   events_by_type: Record<string, number>;
   incidents_by_severity: Record<string, number>;
@@ -109,12 +110,23 @@ export const fetchAnalytics = async (): Promise<AnalyticsSummary> => {
   return res.data;
 };
 
-export const fetchThreats = async () => {
+export interface ThreatItem {
+  id: string;
+  incident_number: number;
+  title: string;
+  severity: string;
+  risk_score: number;
+  status: string;
+  container_name?: string;
+  created_at: string;
+}
+
+export const fetchThreats = async (): Promise<ThreatItem[]> => {
   const res = await api.get('/threats');
   return res.data;
 };
 
-export const fetchIncidents = async (params?: Record<string, any>): Promise<Incident[]> => {
+export const fetchIncidents = async (params?: Record<string, string | undefined>): Promise<Incident[]> => {
   const res = await api.get('/incidents', { params });
   return res.data;
 };
@@ -153,5 +165,28 @@ export const runDemoSimulation = async (scenarioId: string, containerId?: string
 
 export const runAllSimulations = async () => {
   const res = await api.post('/demo/simulate-all');
+  return res.data;
+};
+
+export interface ModelStatus {
+  trained: boolean;
+  version?: string;
+  baseline_source?: string;
+  baseline_events?: number;
+  trained_at?: string;
+}
+
+export const fetchModelStatus = async (): Promise<ModelStatus> => {
+  const res = await api.get('/model/status');
+  return res.data;
+};
+
+export const seedBaseline = async () => {
+  const res = await api.post('/demo/seed-baseline');
+  return res.data;
+};
+
+export const trainDemoModel = async (): Promise<ModelStatus> => {
+  const res = await api.post('/model/train?include_simulated=true');
   return res.data;
 };

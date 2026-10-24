@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useCallback, useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { fetchIncidentById, acknowledgeIncident, resolveIncident, Incident } from '@/lib/api';
 import { SeverityBadge, StatusBadge, RiskBadge } from '@/components/Badges';
-import { ArrowLeft, ShieldAlert, CheckCircle, Clock, FileText, Server, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, CheckCircle, Clock, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 export default function IncidentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -13,7 +13,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
   const [actionLoading, setActionLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'evidence'>('overview');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const data = await fetchIncidentById(resolvedParams.id);
       setIncident(data);
@@ -22,11 +22,12 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
     } finally {
       setLoading(false);
     }
-  };
+  }, [resolvedParams.id]);
 
   useEffect(() => {
-    loadData();
-  }, [resolvedParams.id]);
+    const initial = setTimeout(loadData, 0);
+    return () => clearTimeout(initial);
+  }, [loadData]);
 
   const handleAcknowledge = async () => {
     setActionLoading(true);
@@ -96,7 +97,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
             <p className="text-xs text-slate-400">{incident.description}</p>
           </div>
 
-          {/* Response Action Buttons */}
+          {/* Analyst status actions */}
           <div className="flex flex-wrap items-center gap-2">
             {incident.status === 'OPEN' && (
               <button
@@ -146,12 +147,12 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
       <div className="flex border-b border-slate-800 text-xs font-medium">
         {[
           { id: 'overview', label: 'Risk & Indicators' },
-          { id: 'timeline', label: 'Attack Timeline' },
+          { id: 'timeline', label: 'Incident Timeline' },
           { id: 'evidence', label: 'Raw Evidence' },
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'timeline' | 'evidence')}
             className={`px-4 py-2.5 border-b-2 transition ${
               activeTab === tab.id
                 ? 'border-cyan-400 text-cyan-400 font-bold'
@@ -224,24 +225,17 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
         <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/60 space-y-6">
           <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
             <Clock className="w-4 h-4 text-cyan-400" />
-            Correlated Event Timeline
+            Incident Timeline
           </h3>
 
           <div className="relative pl-6 space-y-6 border-l-2 border-slate-800">
-            <div className="relative group">
-              <span className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-slate-700 border-2 border-slate-950" />
-              <div className="text-xs font-mono text-slate-400">{new Date(incident.first_seen).toLocaleTimeString()}</div>
-              <div className="text-sm font-medium text-slate-200">Normal Runtime Telemetry Recorded</div>
-              <div className="text-xs text-slate-400">Baseline container activity initialized on host {incident.host || 'node-01'}</div>
-            </div>
-
             <div className="relative group">
               <span className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-amber-500 border-2 border-slate-950 animate-ping" />
               <span className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-amber-500 border-2 border-slate-950" />
               <div className="text-xs font-mono text-amber-400">{new Date(incident.created_at).toLocaleTimeString()}</div>
               <div className="text-sm font-bold text-rose-300">Detection Triggered: {incident.title}</div>
               <div className="text-xs text-slate-300 mt-1 p-2 rounded bg-slate-950 border border-slate-800">
-                Rule {incident.detection_rule} matched event pattern. Assigned risk score {incident.risk_score}/100 ({incident.severity}).
+                Detection {incident.detection_rule} recorded. Assigned risk score {incident.risk_score}/100 ({incident.severity}).
               </div>
             </div>
 
@@ -249,7 +243,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
               <div className="relative group">
                 <span className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-950" />
                 <div className="text-xs font-mono text-emerald-400">Incident Resolved</div>
-                <div className="text-sm font-medium text-emerald-300">Containment & Analyst Verification Complete</div>
+                <div className="text-sm font-medium text-emerald-300">Marked resolved by an analyst</div>
               </div>
             )}
           </div>

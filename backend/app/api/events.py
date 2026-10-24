@@ -9,8 +9,15 @@ from app.core.database import get_db
 from app.models.event import RuntimeEvent
 from app.schemas import EventIngest, EventResponse
 from app.services.event_service import ingest_event
+from app.telemetry.falco import FalcoAlert, normalize_alert
 
 router = APIRouter()
+
+
+@router.post("/falco/events", response_model=EventResponse, status_code=201, tags=["Events"])
+async def ingest_falco_alert(alert: FalcoAlert, db: AsyncSession = Depends(get_db)):
+    """Accept Falco JSON alerts through an authenticated forwarder."""
+    return await ingest_event(db, normalize_alert(alert))
 
 
 @router.post("/events", response_model=EventResponse, status_code=201, tags=["Events"])

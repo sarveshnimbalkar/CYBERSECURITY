@@ -3,16 +3,18 @@
 import React, { useEffect, useState } from 'react';
 import { fetchContainers, Container } from '@/lib/api';
 import { RiskBadge } from '@/components/Badges';
-import { Box, Cpu, HardDrive, ShieldCheck, Server, AlertCircle } from 'lucide-react';
+import { Box, Cpu, HardDrive, Server } from 'lucide-react';
 
 export default function ContainersPage() {
   const [containers, setContainers] = useState<Container[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(0);
 
   const loadContainers = async () => {
     try {
       const data = await fetchContainers();
       setContainers(data);
+      setLastRefresh(Date.now());
     } catch (e) {
       console.error('Failed to load containers:', e);
     } finally {
@@ -21,9 +23,9 @@ export default function ContainersPage() {
   };
 
   useEffect(() => {
-    loadContainers();
+    const initial = setTimeout(loadContainers, 0);
     const interval = setInterval(loadContainers, 10000);
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initial); clearInterval(interval); };
   }, []);
 
   return (
@@ -58,7 +60,7 @@ export default function ContainersPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className={`w-2.5 h-2.5 rounded-full ${lastRefresh - new Date(c.last_seen).getTime() < 300000 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
                     <h3 className="font-bold text-slate-100 text-sm font-mono">{c.name}</h3>
                   </div>
                   <span className="text-[11px] text-slate-400 font-mono block mt-0.5">{c.container_id}</span>

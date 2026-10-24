@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { SeverityBadge, StatusBadge, RiskBadge } from './Badges';
-import { Shield, ChevronRight, AlertCircle } from 'lucide-react';
+import { Shield, ChevronRight } from 'lucide-react';
 
 interface ThreatItem {
   id: string;

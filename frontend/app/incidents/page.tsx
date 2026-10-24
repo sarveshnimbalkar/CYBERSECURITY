@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchIncidents, Incident } from '@/lib/api';
 import { SeverityBadge, StatusBadge, RiskBadge } from '@/components/Badges';
-import { AlertOctagon, Filter, ChevronRight, Search } from 'lucide-react';
+import { AlertOctagon, ChevronRight, Search } from 'lucide-react';
 
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -13,7 +13,7 @@ export default function IncidentsPage() {
   const [severityFilter, setSeverityFilter] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const loadIncidents = async () => {
+  const loadIncidents = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchIncidents({
@@ -26,11 +26,12 @@ export default function IncidentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, severityFilter]);
 
   useEffect(() => {
-    loadIncidents();
-  }, [statusFilter, severityFilter]);
+    const initial = setTimeout(loadIncidents, 0);
+    return () => clearTimeout(initial);
+  }, [loadIncidents]);
 
   const filteredIncidents = incidents.filter((inc) => {
     if (!searchTerm) return true;
@@ -53,7 +54,7 @@ export default function IncidentsPage() {
             Security Incidents
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Correlated runtime threat incidents and automated response status
+            Runtime alerts grouped into incidents for analyst triage
           </p>
         </div>
 

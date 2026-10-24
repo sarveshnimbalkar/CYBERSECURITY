@@ -2,20 +2,24 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { fetchDemoScenarios, runDemoSimulation, runAllSimulations, DemoScenario } from '@/lib/api';
-import { PlayCircle, ShieldAlert, Zap, CheckCircle2, ArrowRight, Server } from 'lucide-react';
+import { fetchDemoScenarios, runDemoSimulation, runAllSimulations, fetchModelStatus, seedBaseline, trainDemoModel, DemoScenario, ModelStatus } from '@/lib/api';
+import { PlayCircle, Zap, CheckCircle2, ArrowRight } from 'lucide-react';
 import { SeverityBadge } from '@/components/Badges';
 
 export default function DemoPage() {
   const [scenarios, setScenarios] = useState<DemoScenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSimulation, setActiveSimulation] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<any>(null);
+  const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null);
+  const [model, setModel] = useState<ModelStatus | null>(null);
+  const [demoAvailable, setDemoAvailable] = useState(true);
 
   useEffect(() => {
     fetchDemoScenarios()
       .then(setScenarios)
+      .catch(() => setDemoAvailable(false))
       .finally(() => setLoading(false));
+    fetchModelStatus().then(setModel).catch(() => setModel(null));
   }, []);
 
   const handleSimulate = async (id: string) => {
@@ -24,9 +28,9 @@ export default function DemoPage() {
     try {
       const res = await runDemoSimulation(id);
       setLastResult(res);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Simulation failed:', e);
-      setLastResult({ error: e.message || 'Simulation failed' });
+      setLastResult({ error: e instanceof Error ? e.message : 'Simulation failed' });
     } finally {
       setActiveSimulation(null);
     }
@@ -38,9 +42,24 @@ export default function DemoPage() {
     try {
       const res = await runAllSimulations();
       setLastResult(res);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Simulation failed:', e);
-      setLastResult({ error: e.message || 'Simulation failed' });
+      setLastResult({ error: e instanceof Error ? e.message : 'Simulation failed' });
+    } finally {
+      setActiveSimulation(null);
+    }
+  };
+
+  const handleTrainModel = async () => {
+    setActiveSimulation('TRAIN');
+    setLastResult(null);
+    try {
+      await seedBaseline();
+      const status = await trainDemoModel();
+      setModel(status);
+      setLastResult({ model: 'Isolation Forest', ...status });
+    } catch (e: unknown) {
+      setLastResult({ error: e instanceof Error ? e.message : 'Model training failed' });
     } finally {
       setActiveSimulation(null);
     }
@@ -48,6 +67,7 @@ export default function DemoPage() {
 
   return (
     <div className="space-y-6">
+      {!demoAvailable && <div className="p-4 rounded-xl border border-amber-700 text-amber-300 text-sm">Demo mode is disabled on this server.</div>}
       {/* Top Banner */}
       <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/40 border border-amber-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
@@ -56,7 +76,7 @@ export default function DemoPage() {
             <h2 className="text-xl font-bold text-slate-100">Academic Demo Mode & Attack Simulator</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Trigger safe, controlled attack scenarios against test containers to demonstrate threat detection & response live in a viva or interview.
+            Generate synthetic event records to demonstrate detection and incident triage.
           </p>
         </div>
 
@@ -66,7 +86,22 @@ export default function DemoPage() {
           className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition flex items-center gap-2 disabled:opacity-50 shrink-0 shadow-lg shadow-amber-500/20"
         >
           <PlayCircle className={`w-4 h-4 fill-current ${activeSimulation === 'ALL' ? 'animate-spin' : ''}`} />
-          {activeSimulation === 'ALL' ? 'Simulating All Scenarios...' : 'Run All 6 Scenarios'}
+          {activeSimulation === 'ALL' ? 'Simulating All Scenarios...' : `Run All ${scenarios.length} Scenarios`}
+        </button>
+      </div>
+
+      <div className="p-5 rounded-xl border border-indigo-800/50 bg-indigo-950/20 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-100">Optional anomaly model</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            {model?.trained
+              ? `Trained on ${model.baseline_events} ${model.baseline_source} events. Synthetic baseline is for demonstration only.`
+              : 'No trained model loaded. Rules still run without it.'}
+          </p>
+        </div>
+        <button onClick={handleTrainModel} disabled={activeSimulation !== null}
+          className="px-4 py-2 rounded-lg bg-indigo-500 text-white text-xs font-semibold disabled:opacity-50">
+          {activeSimulation === 'TRAIN' ? 'Training...' : 'Seed benign events & train model'}
         </button>
       </div>
 
@@ -76,7 +111,7 @@ export default function DemoPage() {
           <div className="flex items-center justify-between font-bold text-sm">
             <span className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              Simulation Executed Successfully
+              {lastResult.error ? 'Operation Failed' : 'Operation Completed'}
             </span>
             <Link href="/incidents" className="text-cyan-400 hover:underline font-normal text-xs flex items-center gap-1">
               View Generated Incidents <ArrowRight className="w-3 h-3" />

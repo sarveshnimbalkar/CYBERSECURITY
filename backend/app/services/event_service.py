@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc
 
 from app.models.event import RuntimeEvent
-from app.models.incident import Incident
+from app.models.incident import Incident, IncidentNumber
 from app.models.detection import Detection, ResponseAction, AuditLog
 from app.models.container import Container
 from app.schemas import EventIngest
@@ -21,8 +21,15 @@ from app.detection.rules import (
     rule_suspicious_external_connection,
     rule_cryptomining,
     rule_rapid_file_modification,
+    rule_runtime_socket_access,
+    rule_credential_file_access,
+    rule_cron_persistence,
+    rule_security_artifact_tampering,
 )
 from app.detection.risk_engine import calculate_risk
+from app.detection.anomaly import score_event, model_status
+from app.detection.rules import DetectionResult
+from app.core.config import settings
 
 
 async def ingest_event(db: AsyncSession, event_data: EventIngest) -> RuntimeEvent:
@@ -31,7 +38,7 @@ async def ingest_event(db: AsyncSession, event_data: EventIngest) -> RuntimeEven
     This is the main entry point for the detection pipeline.
     """
     # 1. Ensure container exists in registry before event insertion (Foreign Key constraint)
-    await ensure_container(db, event_data)
+    container = await ensure_container(db, event_data)
 
     # 2. Create normalized RuntimeEvent record
     event = RuntimeEvent(
@@ -65,7 +72,7 @@ async def ingest_event(db: AsyncSession, event_data: EventIngest) -> RuntimeEven
     await db.flush()  # get the ID without committing
 
     # 3. Run rule-based detection
-    await run_detection_pipeline(db, event)
+    await run_detection_pipeline(db, event, cpu_percent=container.cpu_percent if container else 0.0)
 
     return event
 
@@ -85,19 +92,25 @@ async def ensure_container(db: AsyncSession, event_data: EventIngest) -> Optiona
             id=str(uuid.uuid4()),
             container_id=event_data.container_id,
             name=event_data.container_name or event_data.container_id,
+            image=event_data.container_image or "unknown",
             host=event_data.host,
             status="running",
+            cpu_percent=event_data.cpu_percent or 0.0,
         )
         db.add(container)
     else:
         container.last_seen = datetime.now(timezone.utc)
         if event_data.container_name:
             container.name = event_data.container_name
+        if event_data.container_image:
+            container.image = event_data.container_image
+        if event_data.cpu_percent is not None:
+            container.cpu_percent = event_data.cpu_percent
 
     return container
 
 
-async def run_detection_pipeline(db: AsyncSession, event: RuntimeEvent) -> None:
+async def run_detection_pipeline(db: AsyncSession, event: RuntimeEvent, cpu_percent: float = 0.0) -> None:
     """
     Run all detection rules against the event and create incidents for matches.
     """
@@ -137,19 +150,65 @@ async def run_detection_pipeline(db: AsyncSession, event: RuntimeEvent) -> None:
         rule_suspicious_shell(event),
         rule_reverse_shell(event, recent_shell_in_container=recent_shell),
         rule_privilege_escalation(event),
-        rule_suspicious_external_connection(event),
-        rule_cryptomining(event),
+        rule_suspicious_external_connection(
+            event,
+            known_destinations={ip.strip() for ip in settings.KNOWN_DESTINATIONS.split(",") if ip.strip()},
+        ),
+        rule_cryptomining(event, cpu_percent=cpu_percent),
         rule_rapid_file_modification(event, file_mod_rate_per_minute=file_mod_rate),
+        rule_runtime_socket_access(event),
+        rule_credential_file_access(event),
+        rule_cron_persistence(event),
+        rule_security_artifact_tampering(event),
     ]
+    if event.source == "falco" and event.raw_event and event.raw_event.get("rule"):
+        results.append(DetectionResult(
+            triggered=True,
+            rule_id="FALCO-001",
+            rule_name=str(event.raw_event["rule"])[:256],
+            severity=event.severity,
+            confidence=0.9,
+            risk_contribution={"CRITICAL": 50.0, "HIGH": 35.0, "MEDIUM": 20.0, "LOW": 10.0}.get(event.severity, 20.0),
+            explanation=str(event.raw_event.get("output", "Falco rule triggered"))[:512],
+            indicators=[f"Falco rule: {event.raw_event['rule']}", f"Falco priority: {event.raw_event.get('priority', 'unknown')}"],
+            recommended_actions=["Review the Falco alert and process context"],
+        ))
+
+    anomaly_score = score_event(event) if event.source not in {"baseline_simulated", "baseline_live"} else None
+    if anomaly_score is not None:
+        results.append(DetectionResult(
+            triggered=True,
+            rule_id="ML-001",
+            rule_name="Behavioral Anomaly",
+            severity="MEDIUM",
+            confidence=round(0.5 + anomaly_score * 0.4, 2),
+            risk_contribution=15.0,
+            explanation=f"Event differs from the trained {settings.APP_NAME} baseline (score {anomaly_score:.3f}).",
+            indicators=[f"Isolation Forest anomaly score: {anomaly_score:.3f}"],
+            recommended_actions=["Review event context and baseline quality"],
+        ))
 
     triggered = [r for r in results if r.triggered]
     if not triggered:
         return
 
+    correlated_event_count = 1
+    if event.container_id:
+        related = await db.execute(
+            select(func.count(func.distinct(Detection.event_id)))
+            .join(RuntimeEvent, Detection.event_id == RuntimeEvent.id)
+            .where(and_(
+                RuntimeEvent.container_id == event.container_id,
+                RuntimeEvent.timestamp >= datetime.now(timezone.utc) - timedelta(minutes=5),
+            ))
+        )
+        correlated_event_count += related.scalar() or 0
+
     # Calculate risk score
     risk = calculate_risk(
         rule_results=triggered,
-        correlated_event_count=1,
+        correlated_event_count=correlated_event_count,
+        anomaly_score=anomaly_score,
     )
 
     # Find the highest-severity triggered rule for incident title
@@ -157,7 +216,7 @@ async def run_detection_pipeline(db: AsyncSession, event: RuntimeEvent) -> None:
     top_rule = max(triggered, key=lambda r: severity_order.get(r.severity, 0))
 
     # Create or update incident
-    incident = await get_or_create_incident(db, event, top_rule, risk, triggered)
+    incident = await get_or_create_incident(db, event, top_rule, risk, triggered, anomaly_score)
 
     # Save detection records
     for rule_result in triggered:
@@ -165,12 +224,15 @@ async def run_detection_pipeline(db: AsyncSession, event: RuntimeEvent) -> None:
             id=str(uuid.uuid4()),
             event_id=event.id,
             incident_id=incident.id,
-            detection_type="RULE",
+            detection_type="ML" if rule_result.rule_id == "ML-001" else "RULE",
             rule_name=rule_result.rule_name,
             rule_id=rule_result.rule_id,
             confidence=rule_result.confidence,
             severity=rule_result.severity,
             risk_score=rule_result.risk_contribution,
+            anomaly_score=anomaly_score if rule_result.rule_id == "ML-001" else None,
+            is_anomalous=True if rule_result.rule_id == "ML-001" else None,
+            model_version=model_status().get("version") if rule_result.rule_id == "ML-001" else None,
             explanation=rule_result.explanation,
             matched_indicators=rule_result.indicators,
             mitre_technique=rule_result.mitre_technique,
@@ -191,7 +253,7 @@ async def run_detection_pipeline(db: AsyncSession, event: RuntimeEvent) -> None:
 
 
 async def get_or_create_incident(
-    db: AsyncSession, event: RuntimeEvent, top_rule, risk, all_triggered
+    db: AsyncSession, event: RuntimeEvent, top_rule, risk, all_triggered, anomaly_score=None
 ) -> Incident:
     """
     Find an existing open incident for this container/rule, or create a new one.
@@ -212,13 +274,22 @@ async def get_or_create_incident(
         existing = result.scalar_one_or_none()
         if existing:
             existing.last_seen = datetime.now(timezone.utc)
-            existing.risk_score = max(existing.risk_score, risk.capped_score)
+            if risk.capped_score > existing.risk_score:
+                existing.risk_score = risk.capped_score
+                existing.risk_factors = risk.breakdown
+                existing.severity = top_rule.severity
+            if anomaly_score is not None:
+                existing.anomaly_score = max(existing.anomaly_score or 0.0, anomaly_score)
+            new_indicators = [item for r in all_triggered for item in r.indicators]
+            existing.attack_indicators = list(dict.fromkeys((existing.attack_indicators or []) + new_indicators))[:20]
             existing.updated_at = datetime.now(timezone.utc)
             return existing
 
-    # Get next incident number
-    count_result = await db.execute(select(func.count(Incident.id)))
-    incident_number = (count_result.scalar() or 0) + 1
+    # Let the database allocate a unique display number.
+    number = IncidentNumber()
+    db.add(number)
+    await db.flush()
+    incident_number = number.id
 
     all_indicators = []
     for r in all_triggered:
@@ -239,6 +310,8 @@ async def get_or_create_incident(
         ),
         severity=top_rule.severity,
         risk_score=risk.capped_score,
+        anomaly_score=anomaly_score,
+        ml_model_version=model_status().get("version") if anomaly_score is not None else None,
         status="OPEN",
         container_id=event.container_id,
         container_name=event.container_name,

@@ -4,15 +4,15 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MetricCard } from '@/components/MetricCard';
 import { ThreatFeed } from '@/components/ThreatFeed';
-import { RiskBadge } from '@/components/Badges';
-import { fetchAnalytics, fetchThreats, runAllSimulations, AnalyticsSummary } from '@/lib/api';
+import { fetchAnalytics, fetchThreats, fetchHealth, runAllSimulations, AnalyticsSummary, ThreatItem } from '@/lib/api';
 import { ShieldAlert, AlertTriangle, Box, Activity, Zap, Play, ArrowRight } from 'lucide-react';
 
 export default function OverviewPage() {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
-  const [threats, setThreats] = useState<any[]>([]);
+  const [threats, setThreats] = useState<ThreatItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [simulating, setSimulating] = useState(false);
+  const [demoEnabled, setDemoEnabled] = useState(false);
 
   const loadData = async () => {
     try {
@@ -27,9 +27,10 @@ export default function OverviewPage() {
   };
 
   useEffect(() => {
-    loadData();
+    const initial = setTimeout(loadData, 0);
+    fetchHealth().then((health) => setDemoEnabled(health.demo_mode)).catch(() => setDemoEnabled(false));
     const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initial); clearInterval(interval); };
   }, []);
 
   const handleQuickDemo = async () => {
@@ -52,22 +53,22 @@ export default function OverviewPage() {
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             SOC Operations Center
             <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-              SYSTEM ONLINE
+              {analytics ? 'DASHBOARD CONNECTED' : 'AWAITING DATA'}
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Real-Time Runtime Monitoring • Behavioral Anomaly Engine • Automated Containment
+            Event monitoring • Rule detection • Optional trained anomaly model
           </p>
         </div>
 
-        <button
+        {demoEnabled && <button
           onClick={handleQuickDemo}
           disabled={simulating}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-semibold text-sm hover:bg-amber-400 transition disabled:opacity-50 shadow-lg shadow-amber-500/20"
         >
           <Play className={`w-4 h-4 fill-current ${simulating ? 'animate-spin' : ''}`} />
           {simulating ? 'Running Attack Simulation...' : 'Trigger Attack Simulation'}
-        </button>
+        </button>}
       </div>
 
       {/* KPI Grid */}
@@ -75,7 +76,7 @@ export default function OverviewPage() {
         <MetricCard
           title="Monitored Containers"
           value={analytics?.total_containers ?? 0}
-          subtitle={`${analytics?.active_containers ?? 0} active in lab`}
+          subtitle={`${analytics?.active_containers ?? 0} seen in last 5 minutes`}
           icon={Box}
           variant="cyan"
         />
@@ -96,7 +97,7 @@ export default function OverviewPage() {
         <MetricCard
           title="Total Events Processed"
           value={analytics?.total_events ?? 0}
-          subtitle={`Detection rate: ${((analytics?.detection_rate ?? 0) * 100).toFixed(2)}%`}
+          subtitle={`Events with alerts: ${((analytics?.alerted_event_ratio ?? 0) * 100).toFixed(2)}%`}
           icon={Activity}
           variant="emerald"
         />
@@ -112,13 +113,13 @@ export default function OverviewPage() {
         {/* Sidebar Summary (1 col) */}
         <div className="space-y-6">
           {/* Quick Demo Launch Card */}
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
+          {demoEnabled && <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
             <div className="flex items-center gap-2 text-amber-400 text-sm font-semibold">
               <Zap className="w-4 h-4" />
               <span>Academic Demo Scenarios</span>
             </div>
             <p className="text-xs text-slate-400">
-              Instantly generate realistic runtime events to demonstrate threat detection, risk scoring, and response.
+              Generate labeled synthetic events to demonstrate detection, risk scoring, and incident triage.
             </p>
             <div className="space-y-2 pt-1">
               <Link
@@ -129,7 +130,7 @@ export default function OverviewPage() {
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
-          </div>
+          </div>}
 
           {/* Quick Stats: Incidents by Severity */}
           <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">

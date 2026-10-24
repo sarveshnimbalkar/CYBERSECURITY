@@ -50,6 +50,7 @@ def make_event(event_type: str, container: dict, **kwargs) -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "container_id": container["container_id"],
         "container_name": container["name"],
+        "container_image": container["image"],
         "host": container["host"],
         "source": "simulated",
         **kwargs,
@@ -181,7 +182,7 @@ def scenario_rapid_file_modification(container: dict) -> List[dict]:
     """Scenario: High-volume file modification (ransomware-like behavior)."""
     events = []
     pid = random.randint(1000, 9999)
-    for i in range(10):  # simulate a burst
+    for i in range(55):  # exceed RULE-006's >50 events/minute threshold
         events.append(make_event("FILE_MODIFY", container,
                                  process_name="encryptor",
                                  process_pid=pid,
@@ -208,6 +209,35 @@ def scenario_suspicious_connection(container: dict) -> List[dict]:
                    protocol="TCP",
                    severity="MEDIUM"),
     ]
+
+
+def scenario_runtime_socket_access(container: dict) -> List[dict]:
+    """Simulate a process connecting to a mounted container runtime socket."""
+    return [make_event("NET_CONNECT", container,
+                       process_name="docker", file_path="/var/run/docker.sock",
+                       user="appuser", user_uid=1000, severity="HIGH")]
+
+
+def scenario_credential_file_access(container: dict) -> List[dict]:
+    """Simulate an unexpected read of a service-account token."""
+    return [make_event("FILE_READ", container,
+                       process_name="cat",
+                       file_path="/var/run/secrets/kubernetes.io/serviceaccount/token",
+                       user="appuser", user_uid=1000, severity="HIGH")]
+
+
+def scenario_cron_persistence(container: dict) -> List[dict]:
+    """Simulate a cron entry being written in a container."""
+    return [make_event("FILE_MODIFY", container,
+                       process_name="crontab", file_path="/etc/cron.d/update-check",
+                       file_operation="write", user="root", user_uid=0, severity="HIGH")]
+
+
+def scenario_log_tampering(container: dict) -> List[dict]:
+    """Simulate deletion of a security-relevant log file."""
+    return [make_event("FILE_DELETE", container,
+                       process_name="rm", file_path="/var/log/auth.log",
+                       file_operation="delete", user="root", user_uid=0, severity="HIGH")]
 
 
 # ─── Attack Scenario Registry ─────────────────────────────────────────────────
@@ -254,6 +284,34 @@ ATTACK_SCENARIOS = {
         "generator": scenario_suspicious_connection,
         "expected_rules": ["RULE-004"],
         "expected_severity": "MEDIUM",
+    },
+    "runtime_socket_access": {
+        "name": "Container Runtime Socket Access",
+        "description": "A process inside a container reaches a container-management socket",
+        "generator": scenario_runtime_socket_access,
+        "expected_rules": ["RULE-007"],
+        "expected_severity": "HIGH",
+    },
+    "credential_file_access": {
+        "name": "Credential File Access",
+        "description": "A process reads a Kubernetes service-account token",
+        "generator": scenario_credential_file_access,
+        "expected_rules": ["RULE-008"],
+        "expected_severity": "HIGH",
+    },
+    "cron_persistence": {
+        "name": "Cron Persistence Change",
+        "description": "A container process writes a cron entry",
+        "generator": scenario_cron_persistence,
+        "expected_rules": ["RULE-009"],
+        "expected_severity": "HIGH",
+    },
+    "log_tampering": {
+        "name": "Security Log Tampering",
+        "description": "A container process deletes an authentication log",
+        "generator": scenario_log_tampering,
+        "expected_rules": ["RULE-010"],
+        "expected_severity": "HIGH",
     },
 }
 

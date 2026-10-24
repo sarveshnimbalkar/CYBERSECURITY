@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.container import Container
 from app.models.event import RuntimeEvent
 from app.models.incident import Incident
+from app.models.detection import Detection
 from app.schemas import AnalyticsSummary
 
 router = APIRouter()
@@ -27,7 +28,9 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
     total_containers = total_containers_r.scalar() or 0
 
     active_containers_r = await db.execute(
-        select(func.count(Container.id)).where(Container.status == "running")
+        select(func.count(Container.id)).where(
+            and_(Container.status == "running", Container.last_seen >= now - timedelta(minutes=5))
+        )
     )
     active_containers = active_containers_r.scalar() or 0
 
@@ -60,10 +63,10 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
     total_events_r = await db.execute(select(func.count(RuntimeEvent.id)))
     total_events = total_events_r.scalar() or 0
 
-    # Detection rate (incidents per event, if any events)
-    total_incidents_r = await db.execute(select(func.count(Incident.id)))
-    total_incidents = total_incidents_r.scalar() or 0
-    detection_rate = round(total_incidents / total_events, 4) if total_events > 0 else 0.0
+    # Share of events that triggered at least one detection. This is not model recall.
+    detected_events_r = await db.execute(select(func.count(func.distinct(Detection.event_id))))
+    detected_events = detected_events_r.scalar() or 0
+    alerted_event_ratio = round(detected_events / total_events, 4) if total_events > 0 else 0.0
 
     # Avg risk score
     avg_risk_r = await db.execute(select(func.avg(Incident.risk_score)))
@@ -119,7 +122,7 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
         high_risk_containers=high_risk_containers,
         threats_today=threats_today,
         total_events=total_events,
-        detection_rate=detection_rate,
+        alerted_event_ratio=alerted_event_ratio,
         avg_risk_score=avg_risk,
         events_by_type=events_by_type,
         incidents_by_severity=incidents_by_severity,

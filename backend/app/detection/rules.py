@@ -11,10 +11,15 @@ Detection Rules implemented:
   RULE-004: Suspicious External Connection
   RULE-005: Cryptomining Behavior
   RULE-006: Rapid File Modification
+  RULE-007: Container Runtime Socket Access
+  RULE-008: Credential File Access
+  RULE-009: Cron Persistence Change
+  RULE-010: Security Log or Agent Tampering
 """
 from dataclasses import dataclass, field
 from typing import Optional, List
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 
 
 # ─── Detection Result Dataclass ───────────────────────────────────────────────
@@ -241,8 +246,8 @@ def rule_privilege_escalation(event) -> DetectionResult:
             "elevated privileges within the container."
         ) if triggered else "No privilege escalation indicators",
         indicators=indicators,
-        mitre_technique="Privilege Escalation",
-        mitre_technique_id="T1068",
+        mitre_technique=None,
+        mitre_technique_id=None,
         recommended_actions=[
             "Verify if root access is expected for this container",
             "Review container capabilities and seccomp profile",
@@ -276,17 +281,28 @@ def rule_suspicious_external_connection(event, known_destinations: set = None) -
     dst_ip = event.destination_ip or ""
     dst_port = event.destination_port or 0
 
-    # Skip internal/loopback addresses
-    if dst_ip.startswith(("127.", "10.", "172.16.", "172.17.", "192.168.", "::1")):
+    # Check complete private ranges rather than string prefixes such as 172.16/17.
+    try:
+        address = ip_address(dst_ip)
+        internal_ranges = (
+            ip_network("10.0.0.0/8"), ip_network("172.16.0.0/12"),
+            ip_network("192.168.0.0/16"), ip_network("127.0.0.0/8"),
+            ip_network("169.254.0.0/16"), ip_network("fc00::/7"),
+            ip_network("fe80::/10"), ip_network("::1/128"),
+        )
+        if any(address in network for network in internal_ranges):
+            return DetectionResult(False, "RULE-004", "Suspicious External Connection",
+                                   "LOW", 0.0, 0.0, "Internal network address", [])
+    except ValueError:
         return DetectionResult(False, "RULE-004", "Suspicious External Connection",
-                               "LOW", 0.0, 0.0, "Internal network address — not suspicious", [])
+                               "LOW", 0.0, 0.0, "Destination is not an IP address", [])
 
-    if dst_ip and dst_ip not in known_destinations:
+    unusual_ports = {4444, 6666, 9999, 31337, 1337, 1234}
+    if dst_ip and dst_ip not in known_destinations and (dst_port in unusual_ports or known_destinations):
         triggered = True
-        indicators.append(f"Connection to previously unseen destination: {dst_ip}:{dst_port}")
+        indicators.append(f"Unusual outbound destination: {dst_ip}:{dst_port}")
 
         # Escalate for unusual ports
-        unusual_ports = {4444, 6666, 9999, 31337, 1337, 1234}
         if dst_port in unusual_ports:
             severity = "HIGH"
             confidence = 0.80
@@ -303,10 +319,10 @@ def rule_suspicious_external_connection(event, known_destinations: set = None) -
         explanation=(
             f"Container initiated connection to unknown external IP {dst_ip}:{dst_port}. "
             "This may indicate data exfiltration or C2 communication."
-        ) if triggered else "Connection to known destination",
+        ) if triggered else "No suspicious external destination indicator",
         indicators=indicators,
-        mitre_technique="Exfiltration Over C2 Channel",
-        mitre_technique_id="T1041",
+        mitre_technique=None,
+        mitre_technique_id=None,
         recommended_actions=[
             "Investigate destination IP reputation",
             "Check if connection is expected for this service",
@@ -342,14 +358,13 @@ def rule_cryptomining(event, cpu_percent: float = 0.0) -> DetectionResult:
         risk = 45.0
         indicators.append(f"Known cryptominer process: {proc}")
 
-    # Mining pool port + network connection (process-name-independent)
-    if event.event_type == "NET_CONNECT" and dst_port in CRYPTOMINING_PORTS:
+    # A common mining port alone is weak evidence; require high CPU too.
+    if event.event_type == "NET_CONNECT" and dst_port in CRYPTOMINING_PORTS and cpu_percent > 80:
         triggered = True
         indicators.append(f"Connection to common mining pool port: {dst_port}")
-        if cpu_percent > 80:
-            confidence = 0.85
-            risk = 50.0
-            indicators.append(f"High CPU usage correlated: {cpu_percent:.1f}%")
+        confidence = 0.85
+        risk = 50.0
+        indicators.append(f"High CPU usage correlated: {cpu_percent:.1f}%")
 
     # High CPU without typical system processes
     if cpu_percent > 90 and event.event_type == "PROCESS_EXEC":
@@ -442,8 +457,8 @@ def rule_rapid_file_modification(event, file_mod_rate_per_minute: float = 0.0) -
             "consistent with ransomware-like behavior, bulk data destruction, or exfiltration."
         ) if triggered else "Normal file activity",
         indicators=indicators,
-        mitre_technique="Data Encrypted for Impact",
-        mitre_technique_id="T1486",
+        mitre_technique=None,
+        mitre_technique_id=None,
         recommended_actions=[
             "Immediately snapshot affected volume",
             "Check file integrity",
@@ -452,6 +467,85 @@ def rule_rapid_file_modification(event, file_mod_rate_per_minute: float = 0.0) -
         ],
     )
 
+
+# ─── Additional container security rules ─────────────────────────────────────
+
+def rule_runtime_socket_access(event) -> DetectionResult:
+    """Flag access to a container-management socket from inside a container.
+
+    Socket access is an escape *opportunity*, not proof of a successful escape.
+    """
+    path = (event.file_path or "").lower()
+    sockets = {"/var/run/docker.sock", "/run/docker.sock", "/run/containerd/containerd.sock", "/var/run/crio/crio.sock"}
+    triggered = bool(event.container_id and event.event_type in {"FILE_READ", "FILE_MODIFY", "NET_CONNECT"} and path in sockets)
+    return DetectionResult(
+        triggered, "RULE-007", "Container Runtime Socket Access",
+        "HIGH" if triggered else "LOW", 0.85 if triggered else 0.0, 35.0 if triggered else 0.0,
+        "A process inside a container accessed a container-management socket. This may enable host-level control."
+        if triggered else "No container runtime socket access",
+        [f"Runtime socket: {path}"] if triggered else [],
+        mitre_technique="Escape to Host", mitre_technique_id="T1611",
+        recommended_actions=["Verify whether this workload needs the runtime socket mount", "Review process and container privileges"],
+    )
+
+
+def rule_credential_file_access(event) -> DetectionResult:
+    """Flag direct reads of common container and cloud credential material."""
+    path = (event.file_path or "").lower()
+    sensitive = (
+        path == "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        or path == "/etc/shadow"
+        or path.endswith("/.aws/credentials")
+        or path.endswith("/.kube/config")
+    )
+    triggered = bool(event.container_id and event.event_type == "FILE_READ" and sensitive)
+    process = (event.process_name or "").lower().split("/")[-1]
+    suspicious_reader = process in {"cat", "curl", "wget", "python", "python3", "bash", "sh", "tar"}
+    severity = "HIGH" if suspicious_reader else "MEDIUM"
+    return DetectionResult(
+        triggered, "RULE-008", "Credential File Access",
+        severity if triggered else "LOW", (0.8 if suspicious_reader else 0.6) if triggered else 0.0,
+        (30.0 if suspicious_reader else 20.0) if triggered else 0.0,
+        "A process read a file that commonly stores credentials. Confirm whether access is expected for this workload."
+        if triggered else "No credential-file access",
+        [f"Credential path: {path}", f"Reader: {process or 'unknown'}"] if triggered else [],
+        mitre_technique="Unsecured Credentials: Credentials In Files", mitre_technique_id="T1552.001",
+        recommended_actions=["Check whether this process is expected to read the credential", "Review subsequent authentication and network activity"],
+    )
+
+
+def rule_cron_persistence(event) -> DetectionResult:
+    """Flag writes to cron configuration from a container."""
+    path = (event.file_path or "").lower()
+    cron_path = path == "/etc/crontab" or path.startswith(("/etc/cron.", "/var/spool/cron/"))
+    triggered = bool(event.container_id and event.event_type in {"FILE_CREATE", "FILE_MODIFY"} and cron_path)
+    return DetectionResult(
+        triggered, "RULE-009", "Cron Persistence Change",
+        "HIGH" if triggered else "LOW", 0.8 if triggered else 0.0, 30.0 if triggered else 0.0,
+        "Cron configuration changed inside a container; recurring execution may have been established."
+        if triggered else "No cron configuration change",
+        [f"Cron path changed: {path}"] if triggered else [],
+        mitre_technique="Scheduled Task/Job: Cron", mitre_technique_id="T1053.003",
+        recommended_actions=["Inspect the new cron entry", "Compare the file with the approved container image"],
+    )
+
+
+def rule_security_artifact_tampering(event) -> DetectionResult:
+    """Flag deletion of logs or modification of security agent configuration."""
+    path = (event.file_path or "").lower()
+    log_deleted = event.event_type == "FILE_DELETE" and path.startswith(("/var/log/", "/app/logs/"))
+    agent_modified = event.event_type in {"FILE_MODIFY", "FILE_DELETE"} and path.startswith(("/etc/falco/", "/etc/audit/"))
+    triggered = bool(event.container_id and (log_deleted or agent_modified))
+    return DetectionResult(
+        triggered, "RULE-010", "Security Artifact Tampering",
+        "HIGH" if triggered else "LOW", 0.75 if triggered else 0.0, 30.0 if triggered else 0.0,
+        "A log or security configuration was changed. This may impair detection or remove evidence."
+        if triggered else "No security artifact tampering",
+        [f"Affected path: {path}", f"Operation: {event.event_type}"] if triggered else [],
+        mitre_technique="Indicator Removal: File Deletion" if log_deleted else None,
+        mitre_technique_id="T1070.004" if log_deleted else None,
+        recommended_actions=["Preserve available logs and file metadata", "Compare configuration with the approved image"],
+    )
 
 # ─── Rule Registry ────────────────────────────────────────────────────────────
 
@@ -462,6 +556,10 @@ ALL_RULES = [
     rule_suspicious_external_connection,
     rule_cryptomining,
     rule_rapid_file_modification,
+    rule_runtime_socket_access,
+    rule_credential_file_access,
+    rule_cron_persistence,
+    rule_security_artifact_tampering,
 ]
 
 RULE_METADATA = {
@@ -471,4 +569,8 @@ RULE_METADATA = {
     "RULE-004": {"name": "Suspicious External Connection", "enabled": True},
     "RULE-005": {"name": "Cryptomining Behavior", "enabled": True},
     "RULE-006": {"name": "Rapid File Modification", "enabled": True},
+    "RULE-007": {"name": "Container Runtime Socket Access", "enabled": True},
+    "RULE-008": {"name": "Credential File Access", "enabled": True},
+    "RULE-009": {"name": "Cron Persistence Change", "enabled": True},
+    "RULE-010": {"name": "Security Artifact Tampering", "enabled": True},
 }

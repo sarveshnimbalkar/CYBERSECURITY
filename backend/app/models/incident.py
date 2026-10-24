@@ -19,7 +19,7 @@ class Incident(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
 
     # Human-readable sequential ID (e.g. INC-1042)
-    incident_number: Mapped[int] = mapped_column(Integer, autoincrement=True, unique=True)
+    incident_number: Mapped[int] = mapped_column(Integer, unique=True)
 
     title: Mapped[str] = mapped_column(String(512))
     description: Mapped[Text] = mapped_column(Text, nullable=True)
@@ -69,3 +69,10 @@ class Incident(Base):
     container_rel = relationship("Container", back_populates="incidents", foreign_keys=[container_id])
     detections = relationship("Detection", back_populates="incident", lazy="select")
     response_actions = relationship("ResponseAction", back_populates="incident", lazy="select")
+
+
+class IncidentNumber(Base):
+    """Database-generated counter prevents duplicate display numbers under concurrency."""
+    __tablename__ = "incident_numbers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

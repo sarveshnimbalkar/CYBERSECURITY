@@ -53,7 +53,7 @@ export const Sidebar = () => {
 
       <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/40 text-xs text-slate-400 space-y-1 font-mono">
         <div className="text-slate-300 font-semibold">CloudGuard Pipeline</div>
-        <div className="text-[11px]">eBPF / Falco → Rules → ML → Correlate → Respond</div>
+        <div className="text-[11px]">Falco alerts / demo events → Rules + ML → Triage</div>
       </div>
     </aside>
   );

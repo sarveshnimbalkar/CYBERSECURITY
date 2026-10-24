@@ -33,4 +33,5 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         database=db_status,
         timestamp=datetime.now(timezone.utc),
         uptime_seconds=round(time.time() - _start_time, 2),
+        demo_mode=settings.DEMO_MODE_ENABLED,
     )

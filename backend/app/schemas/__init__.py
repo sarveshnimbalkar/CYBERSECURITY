@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response validation."""
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ─── Common ──────────────────────────────────────────────────────────────────
@@ -13,6 +13,7 @@ class HealthResponse(BaseModel):
     database: str
     timestamp: datetime
     uptime_seconds: float
+    demo_mode: bool
 
 
 class PaginatedResponse(BaseModel):
@@ -50,8 +51,7 @@ class ContainerResponse(ContainerBase):
     first_seen: datetime
     last_seen: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Runtime Events ───────────────────────────────────────────────────────────
@@ -62,6 +62,7 @@ class EventIngest(BaseModel):
     timestamp: Optional[datetime] = None
     container_id: Optional[str] = None
     container_name: Optional[str] = None
+    container_image: Optional[str] = None
     host: str = "localhost"
     process_name: Optional[str] = None
     process_pid: Optional[int] = None
@@ -82,6 +83,7 @@ class EventIngest(BaseModel):
     severity: str = "LOW"
     source: str = "simulated"
     raw_event: Optional[dict] = None
+    cpu_percent: Optional[float] = Field(default=None, ge=0, le=100)
 
 
 class EventResponse(BaseModel):
@@ -103,8 +105,7 @@ class EventResponse(BaseModel):
     source: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Incidents ────────────────────────────────────────────────────────────────
@@ -127,13 +128,13 @@ class IncidentResponse(BaseModel):
     risk_factors: Optional[dict]
     attack_indicators: Optional[list]
     recommended_actions: Optional[list]
+    evidence: Optional[dict]
     first_seen: datetime
     last_seen: datetime
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Detections ───────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ class DetectionResponse(BaseModel):
     incident_id: Optional[str]
     detection_type: str
     rule_name: Optional[str]
+    rule_id: Optional[str]
     confidence: float
     severity: str
     risk_score: float
@@ -154,8 +156,7 @@ class DetectionResponse(BaseModel):
     container_id: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Response Actions ─────────────────────────────────────────────────────────
@@ -173,8 +174,7 @@ class ResponseActionResponse(BaseModel):
     executed_at: Optional[datetime]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Analytics ───────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ class AnalyticsSummary(BaseModel):
     high_risk_containers: int
     threats_today: int
     total_events: int
-    detection_rate: float  # incidents / total events
+    alerted_event_ratio: float  # distinct detected events / total events
     avg_risk_score: float
     events_by_type: dict
     incidents_by_severity: dict

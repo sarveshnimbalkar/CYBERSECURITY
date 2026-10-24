@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { fetchAnalytics, AnalyticsSummary } from '@/lib/api';
-import { BarChart3, PieChart, TrendingUp, ShieldAlert } from 'lucide-react';
+import { BarChart3 } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -60,18 +60,18 @@ export default function AnalyticsPage() {
           Threat Analytics & Benchmark Metrics
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Quantitative pipeline metrics: detection rate, event breakdown, and severity distributions
+          Event alert ratio, event breakdown, and incident severity
         </p>
       </div>
 
       {/* Metrics Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono">
-          <span className="text-xs text-slate-400 uppercase">Detection Pipeline Rate</span>
+          <span className="text-xs text-slate-400 uppercase">Events With Alerts</span>
           <div className="text-2xl font-bold text-cyan-400 mt-1">
-            {((analytics?.detection_rate ?? 0) * 100).toFixed(2)}%
+            {((analytics?.alerted_event_ratio ?? 0) * 100).toFixed(2)}%
           </div>
-          <span className="text-[11px] text-slate-500">Incidents generated per event</span>
+          <span className="text-[11px] text-slate-500">Distinct alerted events / all events</span>
         </div>
 
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono">
@@ -79,7 +79,7 @@ export default function AnalyticsPage() {
           <div className="text-2xl font-bold text-amber-400 mt-1">
             {analytics?.avg_risk_score ?? 0} / 100
           </div>
-          <span className="text-[11px] text-slate-500">Mean risk across all open threats</span>
+          <span className="text-[11px] text-slate-500">Mean risk across all incidents</span>
         </div>
 
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 font-mono">

@@ -10,11 +10,22 @@ from app.services.event_service import ingest_event
 from app.telemetry.simulator import (
     ATTACK_SCENARIOS,
     generate_attack_scenario,
+    generate_normal_event,
     get_random_container,
     SIMULATED_CONTAINERS,
 )
 
 router = APIRouter()
+
+
+@router.post("/demo/seed-baseline", tags=["Demo"])
+async def seed_baseline(db: AsyncSession = Depends(get_db)):
+    """Create benign, labeled synthetic events for an honest ML demonstration."""
+    for _ in range(250):
+        raw = generate_normal_event(get_random_container())
+        raw["source"] = "baseline_simulated"
+        await ingest_event(db, EventIngest(**{k: v for k, v in raw.items() if k != "timestamp"}))
+    return {"events_generated": 250, "source": "baseline_simulated"}
 
 
 @router.get("/demo/scenarios", tags=["Demo"])
@@ -108,6 +119,7 @@ async def run_all_simulations(
             "name": ATTACK_SCENARIOS[scenario_id]["name"],
             "container": container["name"],
             "events_generated": len(event_ids),
+            "event_ids": event_ids,
         })
 
     return {

@@ -13,7 +13,7 @@ def utcnow():
 class RuntimeEvent(Base):
     """
     Unified normalized event schema.
-    All telemetry sources (Falco, simulated, eBPF) are normalized into this schema.
+    Falco alerts and simulated events are normalized into this schema.
     """
     __tablename__ = "runtime_events"
 
