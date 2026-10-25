@@ -50,7 +50,7 @@ npm run lint
 
 The integration check covers API authorization, model training, all ten scenarios and their expected rules, unique incident numbers, and Falco JSON ingestion.
 
-The [cybersecurity concept roadmap](docs/CYBERSECURITY_CONCEPTS.md) tracks what is implemented, what needs telemetry, and what requires validation. The [threat model](docs/THREAT_MODEL.md) covers CloudGuard's own attack surface.
+The [cybersecurity concept roadmap](docs/CYBERSECURITY_CONCEPTS.md) tracks what is implemented, what needs telemetry, and what requires validation. The [threat model](docs/THREAT_MODEL.md) covers CloudGuard's own attack surface. The [security tooling guide](docs/SECURITY_TOOLING.md) records useful skills, MCP integrations, scanners, their current setup status, and when to use them.
 
 ## Falco ingestion
 
