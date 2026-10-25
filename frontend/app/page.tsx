@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MetricCard } from '@/components/MetricCard';
 import { ThreatFeed } from '@/components/ThreatFeed';
-import { fetchAnalytics, fetchThreats, fetchHealth, runAllSimulations, AnalyticsSummary, ThreatItem } from '@/lib/api';
+import { fetchAnalytics, fetchThreats, fetchHealth, fetchSensors, runAllSimulations, AnalyticsSummary, ThreatItem, SensorSummary } from '@/lib/api';
 import { ShieldAlert, AlertTriangle, Box, Activity, Zap, Play, ArrowRight } from 'lucide-react';
 
 export default function OverviewPage() {
@@ -13,12 +13,14 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [simulating, setSimulating] = useState(false);
   const [demoEnabled, setDemoEnabled] = useState(false);
+  const [sensors, setSensors] = useState<SensorSummary | null>(null);
 
   const loadData = async () => {
     try {
-      const [anData, thData] = await Promise.all([fetchAnalytics(), fetchThreats()]);
+      const [anData, thData, sensorData] = await Promise.all([fetchAnalytics(), fetchThreats(), fetchSensors()]);
       setAnalytics(anData);
       setThreats(thData);
+      setSensors(sensorData);
     } catch (e) {
       console.error('Failed to fetch dashboard data:', e);
     } finally {
@@ -69,6 +71,14 @@ export default function OverviewPage() {
           <Play className={`w-4 h-4 fill-current ${simulating ? 'animate-spin' : ''}`} />
           {simulating ? 'Running Attack Simulation...' : 'Trigger Attack Simulation'}
         </button>}
+      </div>
+
+      <div className={`rounded-xl border p-4 text-sm ${sensors?.status === 'healthy' ? 'border-emerald-800 bg-emerald-950/20 text-emerald-300' : 'border-amber-800 bg-amber-950/20 text-amber-300'}`}>
+        <strong>Sensor coverage: {sensors?.status ?? 'unknown'}</strong>
+        <span className="ml-3 text-xs text-slate-300">
+          {sensors?.sensors.length ?? 0} reporting · {sensors?.sensors.reduce((total, sensor) => total + sensor.queue_depth, 0) ?? 0} queued · {sensors?.sensors.reduce((total, sensor) => total + sensor.dropped_events, 0) ?? 0} dropped
+        </span>
+        {sensors?.status !== 'healthy' && <p className="mt-1 text-xs text-slate-400">Detection coverage is unverified while sensors are missing, stale, or backlogged.</p>}
       </div>
 
       {/* KPI Grid */}

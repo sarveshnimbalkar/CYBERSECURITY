@@ -22,6 +22,8 @@ Prefer a small stack that gives distinct evidence. A skill guides review; an MCP
 
 The first two were installed from the official `openai/skills` curated repository with the Codex skill installer. They live in the user's Codex profile, **not** in this Git repository. This document records their purpose for future contributors but does not install them on another machine. Review the skill source and permissions before installing any third-party skill; a skill can include executable scripts or instructions that access the local environment. [MCP's skills threat model](https://github.com/modelcontextprotocol/ext-skills/blob/main/docs/threat-model.md) explains why remotely supplied skill content should be treated as untrusted.
 
+On 2026-10-25, the installed security best-practices and threat-model skills guided the scoped API keys, bounded request bodies, server-side dashboard proxy, model artifact integrity check, and the updated [threat model](THREAT_MODEL.md). This is a design review record, not an independent vulnerability scan or runtime penetration test.
+
 ## MCP and Codex integrations
 
 | Integration | Status | Practical use | Decision |
@@ -49,10 +51,10 @@ Do not add generic shell-execution, web-reconnaissance, exploit or unmaintained 
 
 GitHub's features are repository settings, not part of the source tree. Their availability depends on repository visibility, plan and permissions. No CodeQL, Dependabot, secret-scanning, Trivy, Semgrep or OSV scan was run as part of this tooling survey; their rows are recommendations, not passing results.
 
-## Recommended order for a credible hackathon demonstration
+## Recommended order for a credible college demonstration
 
 1. **Show a real input path.** Capture Falco alerts on a Linux test host and replay the captured JSON. Include sensor heartbeat, parse failures and dropped-event counters. This is the most important proof that the system is more than a simulator.
-2. **Show measured detection quality.** Keep benign and attack traces separate from training data. Report per-scenario precision/recall, false alerts per container-hour, detection latency and ingestion loss as specified in [the hackathon plan](../HACKATHON_PLAN.md).
+2. **Show measured detection quality.** Keep benign and attack traces separate from training data. Report per-scenario precision/recall, false alerts per container-hour, detection latency and ingestion loss as specified in [the college delivery plan](../COLLEGE_PROJECT_PLAN.md).
 3. **Secure CloudGuard itself.** Use the installed review and threat-model skills plus Codex Security. Address telemetry-writer versus analyst permissions, rate limits, audit logging and TLS from [the concept roadmap](CYBERSECURITY_CONCEPTS.md).
 4. **Automate repeatable checks.** Add CodeQL, dependency/secret scans and a Trivy image scan to CI when the corresponding deployment and permission decisions are made. Save outputs with the demo evidence; a green scan is a coverage signal, not a guarantee.
 5. **Make the result judgeable.** Maintain a coverage table linking each detection to a real field, a Falco sample, a benign control and a measured outcome. Keep unsupported claims explicitly marked as future work.

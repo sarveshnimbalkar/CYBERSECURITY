@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import Optional
 import os
 
@@ -9,6 +10,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     SECRET_KEY: str = "change-me-in-production"
     API_KEY: str = ""
+    SENSOR_API_KEY: str = ""
+    VIEWER_API_KEY: str = ""
+    ANALYST_API_KEY: str = ""
+    ADMIN_API_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
@@ -38,6 +43,14 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def async_postgres_url(cls, value: str) -> str:
+        # Managed Postgres providers supply postgresql://; SQLAlchemy needs the async driver.
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value[len("postgresql://"):]
+        return value
 
 
 settings = Settings()

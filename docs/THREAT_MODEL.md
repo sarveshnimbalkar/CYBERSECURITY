@@ -1,6 +1,6 @@
 # Threat model for CloudGuard itself
 
-Last reviewed: 2026-10-24. This document covers the security platform, not only the workloads it monitors.
+Last reviewed: 2026-10-25. This document covers the security platform, not only the workloads it monitors.
 
 ## Assets and trust boundaries
 
@@ -13,8 +13,8 @@ Last reviewed: 2026-10-24. This document covers the security platform, not only 
 | PostgreSQL database | Stores evidence, incidents, and credentials/configuration context |
 
 ```text
-Falco process / forwarder ──[untrusted network boundary]──> FastAPI ──[database boundary]──> PostgreSQL
-Browser ──[authentication boundary]──> Next.js proxy ──[service-key boundary]──> FastAPI
+Falco / forwarder ──[public HTTPS sensor ingress]──> Next.js ──[private network]──> FastAPI ──[database boundary]──> PostgreSQL
+Browser ──[Basic authentication boundary]──> Next.js proxy ──[role-key boundary]──> FastAPI
 Synthetic demo API ──[explicit demo-mode boundary]──> FastAPI pipeline
 Model artifact ──[local file trust boundary]──> Python model loader
 ```
@@ -23,16 +23,16 @@ Model artifact ──[local file trust boundary]──> Python model loader
 
 | Threat | Present control | Remaining action |
 |---|---|---|
-| Unauthorized API reads/writes | API key on application routes; backend bound locally in Compose | Separate writer/analyst identities, key rotation, authorization by action |
-| Dashboard account compromise | Server-side Basic challenge; API key stays server-side | HTTPS, MFA/session-based login, account lockout, audit trail |
-| Telemetry spoofing/replay | Only a caller with API key can ingest | Per-sensor identity, signed event IDs, timestamps with tolerance, replay cache |
-| Denial of service through large or frequent events | Route allowlist in dashboard proxy | Request-size limits, rate limits, queue/backpressure, quotas |
+| Unauthorized API reads/writes | Scoped sensor, viewer, analyst and admin keys; private backend in the Render template | Individual identities, rotation, expiry and authorization review |
+| Dashboard account compromise | Server-side Basic challenge, role keys stay server-side, mutation origin check | Public HTTPS deployment verification, MFA/session login, account lockout |
+| Telemetry spoofing/replay | Sensor key required; Falco event IDs deduplicate normal sequential retries | Per-sensor keys, timestamp tolerance, concurrent deduplication and replay protection |
+| Denial of service through large or frequent events | 128 KiB backend and public-ingress cap, process-local per-key limit, SQLite forwarder spool | Distributed edge rate/connection limits, spool quotas and load testing |
 | Model poisoning | Synthetic and live baseline sources are separate | Approve training windows, quarantine suspect events, restrict promotion rights |
-| Model file tampering | Model path is local and version checked | Restrict filesystem writes; checksum/signature before loading serialized model |
-| Altered evidence or incident status | Database records events and detections | Immutable/hash-chained audit export, actor identity, before/after values |
+| Model file tampering | HMAC checked before deserializing the joblib file; separate persistent model volume | Separate signing key, file write restrictions and approved model promotion |
+| Altered evidence or incident status | Database records events/detections and role/IP/before/after audit entries for mutations | Immutable/hash-chained audit export and individual actor identity |
 | Secret leakage | Compose reads secrets from environment; no browser API key | External secret store, rotation, log scrubbing, no secrets in raw event payload |
 | Database compromise | Database port is not published in Compose | TLS between services where needed, backups, restricted DB role, encryption at rest |
-| Sensor outage or dropped alerts | Dashboard health check | Sensor heartbeats, drop counters, durable forwarder queue and alert on gaps |
+| Sensor outage or dropped alerts | Sensor heartbeat, queue/drop/parse counters and SQLite forwarder spool | Independent alert on stale heartbeat, disk-full alarms and end-to-end loss measurement |
 | Insecure automatic response | No container action is executed | If response is added, require approval, narrow privileges, dry run, rollback, and audit |
 
 ## Security invariants

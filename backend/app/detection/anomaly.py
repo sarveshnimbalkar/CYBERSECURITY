@@ -1,5 +1,6 @@
 """Optional Isolation Forest trained on an explicitly chosen benign baseline."""
 import asyncio
+import hmac
 import math
 import os
 from datetime import datetime, timezone
@@ -19,6 +20,14 @@ MODEL_VERSION = "1"
 MIN_BASELINE_EVENTS = 200
 _model: IsolationForest | None = None
 _metadata: dict = {}
+
+
+def model_signature(path: Path) -> str:
+    signature = hmac.new(settings.SECRET_KEY.encode(), digestmod="sha256")
+    with path.open("rb") as model_file:
+        for chunk in iter(lambda: model_file.read(65536), b""):
+            signature.update(chunk)
+    return signature.hexdigest()
 
 
 def features(event: RuntimeEvent) -> list[float]:
@@ -47,9 +56,16 @@ def features(event: RuntimeEvent) -> list[float]:
 
 def load_model() -> None:
     global _model, _metadata
+    _model = None
+    _metadata = {}
     path = Path(settings.MODEL_PATH)
-    if not path.exists():
+    seal_path = path.with_suffix(path.suffix + ".hmac")
+    if not path.exists() or not seal_path.exists():
         return
+    expected = seal_path.read_text(encoding="ascii").strip()
+    if not hmac.compare_digest(model_signature(path), expected):
+        return
+    # joblib uses pickle internally; verify integrity before deserializing.
     saved = joblib.load(path)
     if saved.get("version") != MODEL_VERSION:
         return
@@ -97,8 +113,12 @@ async def train_model(db: AsyncSession, include_simulated: bool = False) -> dict
     path = Path(settings.MODEL_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
+    seal_path = path.with_suffix(path.suffix + ".hmac")
+    seal_temp = seal_path.with_suffix(seal_path.suffix + ".tmp")
     await asyncio.to_thread(joblib.dump, {"version": MODEL_VERSION, "model": candidate, "metadata": metadata}, temp)
+    seal_temp.write_text(model_signature(temp), encoding="ascii")
     os.replace(temp, path)
+    os.replace(seal_temp, seal_path)
     _model = candidate
     _metadata = metadata
     return model_status()

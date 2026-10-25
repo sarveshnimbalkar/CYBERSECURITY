@@ -1,6 +1,7 @@
 """Normalize Falco JSON alerts into CloudGuard events."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,7 @@ from app.schemas import EventIngest
 
 
 class FalcoAlert(BaseModel):
+    event_id: UUID | None = None
     time: datetime
     rule: str = Field(min_length=1, max_length=256)
     priority: str = "Notice"

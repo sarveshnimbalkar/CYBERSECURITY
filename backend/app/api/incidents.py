@@ -1,11 +1,13 @@
 """Incidents API — query and manage security incidents."""
 from typing import List, Optional
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, and_
 
 from app.core.database import get_db
+from app.core.auth import Principal, require_roles
+from app.core.audit import record_audit
 from app.models.incident import Incident
 from app.models.detection import Detection, ResponseAction
 from app.schemas import IncidentResponse, DetectionResponse, ResponseActionResponse
@@ -48,44 +50,50 @@ async def get_incident(incident_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/incidents/{incident_id}/acknowledge", tags=["Incidents"])
-async def acknowledge_incident(incident_id: str, db: AsyncSession = Depends(get_db)):
+async def acknowledge_incident(incident_id: str, request: Request, db: AsyncSession = Depends(get_db), principal: Principal = Depends(require_roles("analyst", "admin"))):
     """Mark an incident as acknowledged / being investigated."""
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
+    before = {"status": incident.status}
     incident.status = "INVESTIGATING"
     incident.acknowledged_at = datetime.now(timezone.utc)
-    incident.acknowledged_by = "analyst"
+    incident.acknowledged_by = principal.name
     incident.updated_at = datetime.now(timezone.utc)
+    record_audit(db, principal, request, "incident.acknowledge", "incident", incident_id, before, {"status": incident.status})
     return {"message": "Incident acknowledged", "status": incident.status}
 
 
 @router.post("/incidents/{incident_id}/resolve", tags=["Incidents"])
-async def resolve_incident(incident_id: str, db: AsyncSession = Depends(get_db)):
+async def resolve_incident(incident_id: str, request: Request, db: AsyncSession = Depends(get_db), principal: Principal = Depends(require_roles("analyst", "admin"))):
     """Mark an incident as resolved."""
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
+    before = {"status": incident.status}
     incident.status = "RESOLVED"
     incident.resolved_at = datetime.now(timezone.utc)
     incident.updated_at = datetime.now(timezone.utc)
+    record_audit(db, principal, request, "incident.resolve", "incident", incident_id, before, {"status": incident.status})
     return {"message": "Incident resolved", "status": incident.status}
 
 
 @router.post("/incidents/{incident_id}/false-positive", tags=["Incidents"])
-async def mark_false_positive(incident_id: str, db: AsyncSession = Depends(get_db)):
+async def mark_false_positive(incident_id: str, request: Request, db: AsyncSession = Depends(get_db), principal: Principal = Depends(require_roles("analyst", "admin"))):
     """Mark an incident as a false positive."""
     result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
+    before = {"status": incident.status}
     incident.status = "FALSE_POSITIVE"
     incident.updated_at = datetime.now(timezone.utc)
+    record_audit(db, principal, request, "incident.false_positive", "incident", incident_id, before, {"status": incident.status})
     return {"message": "Marked as false positive", "status": incident.status}
 
 

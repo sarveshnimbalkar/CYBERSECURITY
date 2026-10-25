@@ -3,6 +3,8 @@ from app.models.container import Container
 from app.models.event import RuntimeEvent
 from app.models.incident import Incident, IncidentNumber
 from app.models.detection import Detection, ResponseAction, AuditLog
+from app.models.sensor import SensorState
+from app.models.receipt import FalcoReceipt
 
 __all__ = [
     "Container",
@@ -12,4 +14,6 @@ __all__ = [
     "Detection",
     "ResponseAction",
     "AuditLog",
+    "SensorState",
+    "FalcoReceipt",
 ]

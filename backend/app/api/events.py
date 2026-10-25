@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 
 from app.core.database import get_db
+from app.core.auth import Principal, require_roles
 from app.models.event import RuntimeEvent
+from app.models.receipt import FalcoReceipt
 from app.schemas import EventIngest, EventResponse
 from app.services.event_service import ingest_event
 from app.telemetry.falco import FalcoAlert, normalize_alert
@@ -14,10 +16,19 @@ from app.telemetry.falco import FalcoAlert, normalize_alert
 router = APIRouter()
 
 
-@router.post("/falco/events", response_model=EventResponse, status_code=201, tags=["Events"])
+@router.post("/falco/events", response_model=EventResponse, status_code=201, tags=["Events"], dependencies=[Depends(require_roles("sensor", "admin"))])
 async def ingest_falco_alert(alert: FalcoAlert, db: AsyncSession = Depends(get_db)):
     """Accept Falco JSON alerts through an authenticated forwarder."""
-    return await ingest_event(db, normalize_alert(alert))
+    if alert.event_id:
+        receipt = await db.get(FalcoReceipt, str(alert.event_id))
+        if receipt:
+            event = await db.get(RuntimeEvent, receipt.runtime_event_id)
+            if event:
+                return event
+    event = await ingest_event(db, normalize_alert(alert))
+    if alert.event_id:
+        db.add(FalcoReceipt(event_id=str(alert.event_id), runtime_event_id=event.id))
+    return event
 
 
 @router.post("/events", response_model=EventResponse, status_code=201, tags=["Events"])
@@ -25,16 +36,21 @@ async def ingest_runtime_event(
     event_data: EventIngest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_roles("sensor", "admin")),
 ):
     """
     Ingest a normalized runtime event into the CloudGuard pipeline.
     Triggers detection rules and creates incidents automatically.
     """
+    if event_data.source == "baseline_live" and principal.role != "admin":
+        raise HTTPException(status_code=403, detail="Baseline ingestion requires admin role")
+    if principal.role == "sensor" and event_data.source in {"simulated", "baseline_simulated"}:
+        raise HTTPException(status_code=403, detail="Sensor cannot submit simulated events")
     event = await ingest_event(db, event_data)
     return event
 
 
-@router.get("/events", response_model=List[EventResponse], tags=["Events"])
+@router.get("/events", response_model=List[EventResponse], tags=["Events"], dependencies=[Depends(require_roles("viewer", "analyst", "admin"))])
 async def list_events(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
@@ -58,7 +74,7 @@ async def list_events(
     return result.scalars().all()
 
 
-@router.get("/events/{event_id}", response_model=EventResponse, tags=["Events"])
+@router.get("/events/{event_id}", response_model=EventResponse, tags=["Events"], dependencies=[Depends(require_roles("viewer", "analyst", "admin"))])
 async def get_event(event_id: str, db: AsyncSession = Depends(get_db)):
     """Get a specific runtime event by ID."""
     result = await db.execute(select(RuntimeEvent).where(RuntimeEvent.id == event_id))

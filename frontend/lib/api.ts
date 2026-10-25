@@ -19,6 +19,26 @@ export interface HealthResponse {
   demo_mode: boolean;
 }
 
+export interface SensorSummary {
+  status: 'unknown' | 'healthy' | 'degraded';
+  sensors: Array<{
+    sensor_id: string;
+    hostname: string;
+    status: 'healthy' | 'stale' | 'backlogged';
+    age_seconds: number;
+    sent_events: number;
+    dropped_events: number;
+    parse_failures: number;
+    queue_depth: number;
+    restarts: number;
+  }>;
+}
+
+export const fetchSensors = async (): Promise<SensorSummary> => {
+  const res = await api.get('/sensors');
+  return res.data;
+};
+
 export interface Container {
   id: string;
   container_id: string;

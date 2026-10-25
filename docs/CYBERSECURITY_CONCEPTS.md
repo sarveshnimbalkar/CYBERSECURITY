@@ -1,6 +1,6 @@
 # Cybersecurity concepts for CloudGuard
 
-Last reviewed: 2026-10-24. Scope: container runtime detection, incident triage, and the security of CloudGuard itself. “Implemented” means code exists, not that effectiveness has been proven on real workloads. “Prototype” means a limited implementation exists. “Planned” means it requires new telemetry, controls, or evaluation.
+Last reviewed: 2026-10-25. Scope: container runtime detection, incident triage, and the security of CloudGuard itself. “Implemented” means code exists, not that effectiveness has been proven on real workloads. “Prototype” means a limited implementation exists. “Planned” means it requires new telemetry, controls, or evaluation.
 
 This is a broad, project-specific inventory rather than every concept in cybersecurity. Priorities reflect what would make CloudGuard more credible as a security tool.
 
@@ -45,21 +45,21 @@ This is a broad, project-specific inventory rather than every concept in cyberse
 | Detection coverage | Planned | Track ATT&CK techniques, required data sources, active sensors, and tested detections in a coverage matrix | P1 |
 | Threat intelligence enrichment | Planned | Add signed/dated feeds, confidence, staleness, false-positive controls, and source attribution | P2 |
 | Detection-as-code | Planned | Version rules, review changes, replay labeled traces, and retain rule version on each detection | P1 |
-| Sensor health and blind spots | Planned | Report dropped events, last seen time, unavailable fields, clock skew, and collector restarts | P0 |
+| Sensor health and blind spots | Prototype | Heartbeats report age, queue depth, drops, parse failures and restarts; add clock-skew measurement and an independent alert when heartbeats stop | P0 |
 
 ## Identity, platform protection, and supply chain
 
 | Concept | Status | Required work and proof | Priority |
 |---|---|---|---|
-| API authentication | Prototype | Separate telemetry-writer and analyst credentials; rotate keys; reject expired keys | P0 |
-| Role-based access control and least privilege | Planned | Read-only viewer, analyst, responder, and administrator roles with server-side authorization | P0 |
-| TLS and service authentication | Planned | HTTPS externally and mTLS or equivalent identity for sensor-to-API traffic | P0 |
+| API authentication | Prototype | Sensor, viewer, analyst and admin keys are separate; add individual identities, expiry and rotation | P0 |
+| Role-based access control and least privilege | Prototype | Server-side sensor, viewer, analyst and admin scopes exist; add individual users and a dedicated responder workflow | P0 |
+| TLS and service authentication | Prototype | Render template exposes the dashboard and sensor ingress over managed HTTPS; deploy and verify it, then add per-sensor identity or mTLS | P0 |
 | Secret management | Prototype | Move secrets to a vault or orchestrator secret store; never expose them to browser code or logs | P0 |
-| Audit logging and tamper evidence | Planned | Record actor, action, source IP, before/after state, timestamp, and signed/hash-chained exports | P0 |
-| Rate limiting and input integrity | Planned | Bound payload size, validate source/time/fields, prevent replay, and throttle expensive endpoints | P0 |
+| Audit logging and tamper evidence | Prototype | Incident mutations and training record role, action, IP, before/after and time; add individual identity and tamper-evident export | P0 |
+| Rate limiting and input integrity | Prototype | 128 KiB request cap, schema checks, per-key process limit and Falco retry IDs exist; add distributed edge limits and concurrent replay control | P0 |
 | Container isolation | Planned | Verify non-root, read-only filesystem, dropped capabilities, seccomp, AppArmor/SELinux, and limited mounts | P1 |
 | Kubernetes Pod Security Standards | Planned | Use Baseline or Restricted policy according to workload needs; document exceptions | P1 |
-| Network segmentation | Planned | Limit ingress/egress between sensor, API, dashboard, database, and model service | P1 |
+| Network segmentation | Prototype | Render template uses a private API and database with public dashboard/ingress; verify deployed network policy and egress | P1 |
 | Image provenance and signing | Planned | Pin images by digest, verify signatures, and restrict registry sources | P2 |
 | SBOM and dependency vulnerabilities | Planned | Generate an SBOM, scan dependencies/images, and patch with a documented SLA | P2 |
 | Backup and recovery | Planned | Encrypt backups, test restore, and define retention for incidents/evidence | P1 |
@@ -80,7 +80,7 @@ This is a broad, project-specific inventory rather than every concept in cyberse
 | Concept | Status | Required work and proof | Priority |
 |---|---|---|---|
 | Benign baseline provenance | Prototype | Record workload, collection window, source, exclusions, and who approved labels | P1 |
-| Data/model poisoning resistance | Planned | Restrict training rights, quarantine suspicious samples, review data distribution, and approve promotion | P1 |
+| Data/model poisoning resistance | Prototype | Training and live-baseline labeling require admin; model artifact is HMAC checked before deserialization; add sample review and promotion approval | P1 |
 | Adversarial evasion | Planned | Test renamed processes, alternate paths, low-and-slow activity, and missing telemetry | P1 |
 | Concept drift | Planned | Monitor feature shifts by workload and retrain only after review | P2 |
 | Threshold calibration | Planned | Set thresholds using held-out benign and attack traces, not demo examples | P1 |

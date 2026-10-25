@@ -53,6 +53,8 @@ async def get_db() -> AsyncSession:
 async def init_db() -> None:
     """Create all tables on startup."""
     from app.models.incident import Incident, IncidentNumber
+    from app.models.sensor import SensorState
+    from app.models.receipt import FalcoReceipt
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
